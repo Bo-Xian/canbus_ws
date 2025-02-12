@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<launch>
+
+    <!-- set log file format -->
+    <env name="ROSCONSOLE_FORMAT" value="[${walltime:%Y-%m-%d %H:%M:%S}] [${node}] : ${message}"/>
+
+    <!-- wheel_controller -->
+    <node name="wheel_controller_launch" pkg="wheel_controller" type="wheel_controller_node" output="screen">
+        <rosparam command="load" file="$(find wheel_controller)/cfg/wheel_controller.yaml" />
+    </node>
+
+</launch>

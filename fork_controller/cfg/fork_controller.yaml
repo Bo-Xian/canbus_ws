@@ -1,0 +1,14 @@
+ros_rate_: 50
+fork_hight_upper_limit_: 3.95000005
+fork_hight_lower_limit_: 0.0599999987
+fork_hight_offset_a_: 1.01100004
+fork_hight_offset_b_: -0.0140000004
+fork_hight_tolerance_: 0.00100000005
+upward_kp_: 1000
+upward_ki_: 0
+upward_kd_: 0
+downward_kp_: 100
+downward_ki_: 0
+downward_kd_: 300
+upward_min_speed_: 20
+downward_min_speed_: 20

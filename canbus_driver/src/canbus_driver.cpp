@@ -152,7 +152,7 @@ bool CanBusDriver::initSubscriber(ros::NodeHandle *nh){
 }
 
 void CanBusDriver::cmdVelCallback(const geometry_msgs::Twist::ConstPtr& msg){
-    ROS_INFO_STREAM("Cmd Val Callback");
+    // ROS_INFO_STREAM("Cmd Val Callback");
 
     float velocity          = msg->linear.x;   // m/s
     float angle_in_radian   = msg->angular.z;  // radian
@@ -214,7 +214,7 @@ void CanBusDriver::cmdVelCallback(const geometry_msgs::Twist::ConstPtr& msg){
 }
 
 void CanBusDriver::forkControlSpeedCallback(const std_msgs::Float32::ConstPtr& msg){
-    ROS_INFO_STREAM("Fork Control Speed Callback");
+    // ROS_INFO_STREAM("Fork Control Speed Callback");
     float speed = msg->data;
 
     if(100 <= speed)  speed =  100.0;
@@ -275,7 +275,7 @@ void CanBusDriver::forkControlSpeedCallback(const std_msgs::Float32::ConstPtr& m
 }
 
 void CanBusDriver::wheelAccelerationRatioCallback(const std_msgs::Float32::ConstPtr& msg){
-    ROS_INFO_STREAM("Wheel Acceleration Callback");
+    // ROS_INFO_STREAM("Wheel Acceleration Callback");
 
     float acceleration_percentage = msg->data;
 
@@ -296,7 +296,7 @@ void CanBusDriver::wheelAccelerationRatioCallback(const std_msgs::Float32::Const
 }
 
 void CanBusDriver::wheelDecelerationRatioCallback(const std_msgs::Float32::ConstPtr& msg){
-    ROS_INFO_STREAM("Wheel Deceleration Callback");
+    // ROS_INFO_STREAM("Wheel Deceleration Callback");
 
     float deceleration_percentage = msg->data;
 
@@ -527,6 +527,12 @@ void CanBusDriver::handleMsg778(unsigned char length, unsigned char data[8]){
     int raw_hight = (data[3] << 24) | (data[2] << 16) | (data[1] << 8) | data[0];
     float hight_in_cm = raw_hight / 1000.0;  // from 0.1mm to cm
     pubForkHight(hight_in_cm);
+
+    int aa6 = data[6];
+    int aa7 = data[7];
+
+    // ROS_INFO_STREAM("666 "<<"0x"<<std::setw(2) << std::setfill('0')<< std::hex<<aa6);
+    // ROS_INFO_STREAM("777 "<<"0x"<<std::setw(2) << std::setfill('0')<< std::hex<<aa7);
 
     // ROS_INFO_STREAM("[fork hight] : " << hight_in_cm << " cm");
 

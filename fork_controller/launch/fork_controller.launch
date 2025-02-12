@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<launch>
+
+    <!-- set log file format -->
+    <env name="ROSCONSOLE_FORMAT" value="[${walltime:%Y-%m-%d %H:%M:%S}] [${node}] : ${message}"/>
+
+    <!-- fork_controller -->
+    <node name="fork_controller_launch" pkg="fork_controller" type="fork_controller_node" output="screen">
+        <rosparam command="load" file="$(find fork_controller)/cfg/fork_controller.yaml" />
+    </node>
+
+</launch>

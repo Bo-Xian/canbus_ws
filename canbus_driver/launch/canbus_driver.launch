@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<launch>
+
+    <!-- set log file format -->
+    <env name="ROSCONSOLE_FORMAT" value="[${walltime:%Y-%m-%d %H:%M:%S}] [${node}] : ${message}"/>
+
+    <!-- canbus_driver -->
+    <node name="canbus_driver_launch" pkg="canbus_driver" type="canbus_driver_node" output="screen"/>
+
+    <!-- fork_controller -->
+    <include file="$(find fork_controller)/launch/fork_controller.launch"/>
+
+    <!-- wheel_controller -->
+    <include file="$(find wheel_controller)/launch/wheel_controller.launch"/>
+
+</launch>
