@@ -6,6 +6,7 @@
 
 // ros library
 #include <ros/ros.h>
+#include <std_msgs/Float32.h>
 #include <geometry_msgs/Twist.h>
 
 // ros dynamic_reconfigure
@@ -17,6 +18,7 @@
 #include <ros/package.h>
 #include <yaml-cpp/yaml.h>
 
+using ParamConfig = wheel_controller::wheelControllerParamConfig;
 
 namespace wheel_controller {
 
@@ -29,25 +31,38 @@ private:
 
     bool initPublisher(ros::NodeHandle *nh);
     void pubWheelControlCmd(const geometry_msgs::Twist cmd);
+    void pubEncoderCmd(const geometry_msgs::Twist cmd);
 
     bool initSubscriber(ros::NodeHandle *nh);
     void setCmdVelLocalPlannerCallback(const geometry_msgs::Twist::ConstPtr& msg);
+    void getEncoderAngleCallback(const std_msgs::Float32::ConstPtr& msg);
+    void getEncoderVelocityCallback(const std_msgs::Float32::ConstPtr& msg);
 
     bool initDynamicReconfigure();
-    void dynamicReconfigureCallback(wheel_controller::wheelControllerParamConfig &config, uint32_t level);
+    void dynamicReconfigureCallback(ParamConfig &config, uint32_t level);
 
+    // Rostopic
     ros::Publisher wheel_cmd_pub_;
-
     ros::Subscriber cmd_vel_local_planner_sub_;
 
-    dynamic_reconfigure::Server<wheel_controller::wheelControllerParamConfig> cfg_server_;
-    dynamic_reconfigure::Server<wheel_controller::wheelControllerParamConfig>::CallbackType cfg_Cb_;
+    ros::Publisher encoder_cmd_pub_;
+    ros::Subscriber encoder_angle_sub_;
+    ros::Subscriber encoder_velocity_sub_;
+
+    // Dynamic reconfigure
+    dynamic_reconfigure::Server<ParamConfig> cfg_server_;
+    dynamic_reconfigure::Server<ParamConfig>::CallbackType cfg_Cb_;
+
+    // YAML
+    std::string yaml_path_;
+    YAML::Node yaml_node_;
 
     struct parameters{
-        std::string yaml_path_;
-        YAML::Node yaml_node_;
 
         float wheel_angle_offset_;
+        float encoder_angle_;
+        float encoder_velocity_;
+
     } params;
 
 };

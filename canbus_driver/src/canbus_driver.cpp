@@ -6,7 +6,8 @@ namespace canbus_driver {
 
 CanBusDriver::CanBusDriver(ros::NodeHandle *nh):
     pcan_handle_(PCAN_USBBUS1), //  假設使用 PCAN-USB 設備 1
-    can_baud_rate_(PCAN_BAUD_250K)
+    can_baud_rate_(PCAN_BAUD_250K),
+    stop_thread_(false)
 {
     // 初始化參數
     params.add_msg_rate_                           =    50;  // hz
@@ -48,14 +49,11 @@ CanBusDriver::CanBusDriver(ros::NodeHandle *nh):
     ROS_INFO_STREAM("Subscriber initialized successfully!");
 
     // 啟動定時發訊息執行序
-    std::thread a(&CanBusDriver::addMsgToQueueThread, this);
-    a.detach();  // 開始非阻塞執行緒
+    addMsg_thread_ = std::thread(&CanBusDriver::addMsgToQueueThread, this);
 
     // 啟動通信執行緒
-    std::thread b(&CanBusDriver::transmitMsgThread, this);
-    b.detach();  // 開始非阻塞執行緒
-    std::thread c(&CanBusDriver::receiveMsgThread, this);
-    c.detach();  // 開始非阻塞執行緒
+    transmit_thread_ = std::thread(&CanBusDriver::transmitMsgThread, this);
+    receive_thread_ = std::thread(&CanBusDriver::receiveMsgThread, this);
 
     ROS_INFO_STREAM("Start canbus driver node...");
 }
@@ -64,6 +62,12 @@ CanBusDriver::~CanBusDriver(){
     // 在析構時關閉 PCAN-USB
     CAN_Uninitialize(pcan_handle_);
     ROS_INFO_STREAM("PCAN-USB uninitialized.");
+
+    // 等待其他線程關閉
+    stop_thread_ = true;
+    if (addMsg_thread_.joinable())        addMsg_thread_.join();
+    if (transmit_thread_.joinable())    transmit_thread_.join();
+    if (receive_thread_.joinable())     receive_thread_.join();
 }
 
 bool CanBusDriver::initCanBus(TPCANHandle handler, uint16_t baud_rate) {
@@ -98,12 +102,12 @@ bool CanBusDriver::initCanBus(TPCANHandle handler, uint16_t baud_rate) {
 }
 
 bool CanBusDriver::initPublisher(ros::NodeHandle *nh) {
-    wheel_velocity_pub_             = nh->advertise<std_msgs::Float32>  ("canbus/get_wheel_velocity",           1000);
-    wheel_angle_pub_                = nh->advertise<std_msgs::Float32>  ("canbus/get_wheel_angle",              1000);
-    error_message_pub_              = nh->advertise<std_msgs::String>   ("canbus/get_error_message",            1000);
-    motor_current_pub_              = nh->advertise<std_msgs::Float32>  ("canbus/get_motor_current",            1000);
-    motor_driver_temperature_pub_   = nh->advertise<std_msgs::Float32>  ("canbus/get_motor_driver_temperature", 1000);
-    fork_hight_in_cm_pub_           = nh->advertise<std_msgs::Float32>  ("canbus/get_fork_hight_in_cm",         1000);
+    wheel_velocity_pub_             = nh->advertise<std_msgs::Float32>  ("canbus_driver/get_wheel_velocity",           1000);
+    wheel_angle_pub_                = nh->advertise<std_msgs::Float32>  ("canbus_driver/get_wheel_angle",              1000);
+    error_message_pub_              = nh->advertise<std_msgs::String>   ("canbus_driver/get_error_message",            1000);
+    motor_current_pub_              = nh->advertise<std_msgs::Float32>  ("canbus_driver/get_motor_current",            1000);
+    motor_driver_temperature_pub_   = nh->advertise<std_msgs::Float32>  ("canbus_driver/get_motor_driver_temperature", 1000);
+    fork_hight_in_cm_pub_           = nh->advertise<std_msgs::Float32>  ("canbus_driver/get_fork_hight_in_cm",         1000);
     return true;
 }
 
@@ -144,10 +148,10 @@ void CanBusDriver::pubForkHight(float hight){
 }
 
 bool CanBusDriver::initSubscriber(ros::NodeHandle *nh){
-    wheel_cmd_vel_sub_      = nh->subscribe("canbus/set_wheel_cmd_vel",             10, &CanBusDriver::cmdVelCallback,                  this);
-    fork_control_speed_sub_ = nh->subscribe("canbus/set_fork_control_speed",        10, &CanBusDriver::forkControlSpeedCallback,        this);
-    wheel_acceleration_sub_ = nh->subscribe("canbus/set_wheel_acceleration_ratio",  10, &CanBusDriver::wheelAccelerationRatioCallback,  this);
-    wheel_deceleration_sub_ = nh->subscribe("canbus/set_wheel_deceleration_ratio",  10, &CanBusDriver::wheelDecelerationRatioCallback,  this);
+    wheel_cmd_vel_sub_      = nh->subscribe("canbus_driver/set_wheel_cmd_vel",             10, &CanBusDriver::cmdVelCallback,                  this);
+    fork_control_speed_sub_ = nh->subscribe("canbus_driver/set_fork_control_speed",        10, &CanBusDriver::forkControlSpeedCallback,        this);
+    wheel_acceleration_sub_ = nh->subscribe("canbus_driver/set_wheel_acceleration_ratio",  10, &CanBusDriver::wheelAccelerationRatioCallback,  this);
+    wheel_deceleration_sub_ = nh->subscribe("canbus_driver/set_wheel_deceleration_ratio",  10, &CanBusDriver::wheelDecelerationRatioCallback,  this);
     return true;
 }
 
@@ -317,9 +321,10 @@ void CanBusDriver::wheelDecelerationRatioCallback(const std_msgs::Float32::Const
 }
 
 void CanBusDriver::addMsgToQueueThread(){
-    float sleep_time = 1.0 / params.add_msg_rate_;
 
-    while (ros::ok()) {
+    ros::Rate rate(params.add_msg_rate_);
+
+    while (ros::ok() && !stop_thread_) {
         update_curtis_mutex_.lock();
 
         CanBusCmd msg203;
@@ -343,14 +348,20 @@ void CanBusDriver::addMsgToQueueThread(){
 
         msg_queue_mutex_.unlock();
 
-        ros::Duration(sleep_time).sleep();
+        rate.sleep();
     }
 }
 
 void CanBusDriver::transmitMsgThread(){
-    while (ros::ok()) {
+
+    ros::Rate rate(params.add_msg_rate_ * 2 + 1);
+
+    while (ros::ok() && !stop_thread_) {
         //? early return
-        if(msg_queue_.size()==0) continue;
+        if(msg_queue_.size()==0){
+            rate.sleep();
+            continue;
+        }
 
         msg_queue_mutex_.lock();
         CanBusCmd send_msg = msg_queue_.front();
@@ -378,11 +389,17 @@ void CanBusDriver::transmitMsgThread(){
 void CanBusDriver::receiveMsgThread(){
     TPCANMsg msg;  // 用來存放發送的訊息
     TPCANTimestamp timestamp;  // 用來存放接收訊息的時間戳
-    while(ros::ok()){
+
+    ros::Rate rate(200);
+
+    while(ros::ok() && !stop_thread_){
         // 接收訊息
         TPCANMsg receivedMsg;
         TPCANStatus status = CAN_Read(pcan_handle_, &receivedMsg, &timestamp);
-        if(status != PCAN_ERROR_OK)continue;
+        if(status != PCAN_ERROR_OK){
+            rate.sleep();
+            continue;
+        }
 
         // ROS_INFO_STREAM("Receive canbus message from " << "0x" << std::hex << (int)receivedMsg.ID);
 

@@ -4,12 +4,13 @@
 
 namespace fork_controller {
 
-ForkController::ForkController(ros::NodeHandle *nh){
+ForkController::ForkController(ros::NodeHandle *nh):
+    stop_thread_(false),
+    yaml_path_(ros::package::getPath("fork_controller") + "/cfg/fork_controller.yaml"),
+    yaml_node_(YAML::LoadFile(yaml_path_))
+{
     // 初始化參數
     params.ros_rate_                =    50;  // hz
-
-    params.yaml_path_ = ros::package::getPath("fork_controller") + "/cfg/fork_controller.yaml";
-    params.yaml_node_ = YAML::LoadFile(params.yaml_path_);
 
     params.fork_hight_upper_limit_  =  3.95;  // meter
     params.fork_hight_lower_limit_  =  0.06;  // meter
@@ -60,17 +61,20 @@ ForkController::ForkController(ros::NodeHandle *nh){
     ROS_INFO_STREAM("Dynamic Reconfigure initialized successfully!");
 
     // 啟動枒杈控制執行緒
-    std::thread b(&ForkController::forkControlThread, this);
-    b.detach();
+    fork_thread_ = std::thread(&ForkController::forkControlThread, this);
 
     ROS_INFO_STREAM("Start fork controller node...");
 }
 
-ForkController::~ForkController(){}
+ForkController::~ForkController(){
+    // 等待其他線程關閉
+    stop_thread_ = true;
+    if (fork_thread_.joinable()) fork_thread_.join();
+}
 
 
 bool ForkController::initPublisher(ros::NodeHandle *nh) {
-    fork_control_pub_ = nh->advertise<std_msgs::Float32>  (       "canbus/set_fork_control_speed", 1000);
+    fork_control_pub_ = nh->advertise<std_msgs::Float32>  ("canbus_driver/set_fork_control_speed", 1000);
     fork_hight_pub_   = nh->advertise<std_msgs::Float32>  ("fork_controller/get_fork_hight_in_cm", 1000);
     return true;
 }
@@ -94,7 +98,7 @@ void ForkController::pubForkHight(float hight){
 }
 
 bool ForkController::initSubscriber(ros::NodeHandle *nh){
-    fork_hight_sub_     = nh->subscribe("canbus/get_fork_hight_in_cm", 10, &ForkController::getForkHightCallback, this);
+    fork_hight_sub_     = nh->subscribe("canbus_driver/get_fork_hight_in_cm", 10, &ForkController::getForkHightCallback, this);
     target_hight_sub_   = nh->subscribe("fork_controller/set_fork_hight_in_cm", 10, &ForkController::setForkHightCallback, this);
     return true;
 }
@@ -124,52 +128,54 @@ bool ForkController::initDynamicReconfigure(){
     return true;
 }
 
-void ForkController::dynamicReconfigureCallback(fork_controller::forkControllerParamConfig &config, uint32_t level){
-    params.yaml_node_["ros_rate_"] = params.ros_rate_ = config.ros_rate_;
+void ForkController::dynamicReconfigureCallback(ParamConfig &config, uint32_t level){
+    yaml_node_["ros_rate_"] = params.ros_rate_ = config.ros_rate_;
     ROS_INFO_STREAM("ros_rate_ "<<params.ros_rate_);
 
-    params.yaml_node_["fork_hight_upper_limit_"] = params.fork_hight_upper_limit_ = config.fork_hight_upper_limit_;
-    params.yaml_node_["fork_hight_lower_limit_"] = params.fork_hight_lower_limit_ = config.fork_hight_lower_limit_;
+    yaml_node_["fork_hight_upper_limit_"] = params.fork_hight_upper_limit_ = config.fork_hight_upper_limit_;
+    yaml_node_["fork_hight_lower_limit_"] = params.fork_hight_lower_limit_ = config.fork_hight_lower_limit_;
     ROS_INFO_STREAM("fork_hight_upper_limit_ "<<params.fork_hight_upper_limit_);
     ROS_INFO_STREAM("fork_hight_lower_limit_ "<<params.fork_hight_lower_limit_);
 
-    params.yaml_node_["upward_min_speed_"] = params.upward_min_speed_ = config.upward_min_speed_;
-    params.yaml_node_["downward_min_speed_"] = params.downward_min_speed_ = config.downward_min_speed_;
+    yaml_node_["upward_min_speed_"] = params.upward_min_speed_ = config.upward_min_speed_;
+    yaml_node_["downward_min_speed_"] = params.downward_min_speed_ = config.downward_min_speed_;
     ROS_INFO_STREAM("upward_min_speed_ "<<params.upward_min_speed_);
     ROS_INFO_STREAM("downward_min_speed_ "<<params.downward_min_speed_);
 
-    params.yaml_node_["fork_hight_offset_a_"] = params.fork_hight_offset_a_ = config.fork_hight_offset_a_;
+    yaml_node_["fork_hight_offset_a_"] = params.fork_hight_offset_a_ = config.fork_hight_offset_a_;
     ROS_INFO_STREAM("fork_hight_offset_a_ "<<params.fork_hight_offset_a_);
-    params.yaml_node_["fork_hight_offset_b_"] = params.fork_hight_offset_b_ = config.fork_hight_offset_b_;
+    yaml_node_["fork_hight_offset_b_"] = params.fork_hight_offset_b_ = config.fork_hight_offset_b_;
     ROS_INFO_STREAM("fork_hight_offset_b_ "<<params.fork_hight_offset_b_);
 
-    params.yaml_node_["fork_hight_tolerance_"] = params.fork_hight_tolerance_ = config.fork_hight_tolerance_;
+    yaml_node_["fork_hight_tolerance_"] = params.fork_hight_tolerance_ = config.fork_hight_tolerance_;
     ROS_INFO_STREAM("fork_hight_tolerance_ "<<config.fork_hight_tolerance_);
 
-    params.yaml_node_["upward_kp_"] = params.upward_kp_ = config.upward_kp_;
-    params.yaml_node_["upward_ki_"] = params.upward_ki_ = config.upward_ki_;
-    params.yaml_node_["upward_kd_"] = params.upward_kd_ = config.upward_kd_;
+    yaml_node_["upward_kp_"] = params.upward_kp_ = config.upward_kp_;
+    yaml_node_["upward_ki_"] = params.upward_ki_ = config.upward_ki_;
+    yaml_node_["upward_kd_"] = params.upward_kd_ = config.upward_kd_;
     ROS_INFO_STREAM("upward_kp_ "<<config.upward_kp_);
     ROS_INFO_STREAM("upward_ki_ "<<config.upward_ki_);
     ROS_INFO_STREAM("upward_kd_ "<<config.upward_kd_);
 
-    params.yaml_node_["downward_kp_"] = params.downward_kp_ = config.downward_kp_;
-    params.yaml_node_["downward_ki_"] = params.downward_ki_ = config.downward_ki_;
-    params.yaml_node_["downward_kd_"] = params.downward_kd_ = config.downward_kd_;
+    yaml_node_["downward_kp_"] = params.downward_kp_ = config.downward_kp_;
+    yaml_node_["downward_ki_"] = params.downward_ki_ = config.downward_ki_;
+    yaml_node_["downward_kd_"] = params.downward_kd_ = config.downward_kd_;
     ROS_INFO_STREAM("downward_kp_ "<<config.downward_kp_);
     ROS_INFO_STREAM("downward_ki_ "<<config.downward_ki_);
     ROS_INFO_STREAM("downward_kd_ "<<config.downward_kd_);
 
     // 將參數存回yaml檔
     ROS_INFO_STREAM("Save Params to YAML");
-    std::ofstream fout(params.yaml_path_);
-    fout << params.yaml_node_;
+    std::ofstream fout(yaml_path_);
+    fout << yaml_node_;
 
 }
 
 void ForkController::forkControlThread(){
-    float sleep_time = 1.0 / params.ros_rate_;
-    while (ros::ok()) {
+
+    ros::Rate rate(params.ros_rate_);
+
+    while (ros::ok() && !stop_thread_) {
 
         float hight_controll_speed;
         float error = params.target_hight_ - params.current_hight_;
@@ -195,7 +201,7 @@ void ForkController::forkControlThread(){
         pubForkControlSpeed(hight_controll_speed);
         pubForkHight(params.current_hight_);
 
-        ros::Duration(sleep_time).sleep();
+        rate.sleep();
     }
 }
 

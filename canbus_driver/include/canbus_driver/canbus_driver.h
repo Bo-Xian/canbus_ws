@@ -10,6 +10,7 @@
 #include <cstring>
 #include <cerrno>
 #include <bitset> // show data in binary
+
 // canbus
 #include <PCANBasic.h>
 #include <sys/socket.h>
@@ -77,7 +78,6 @@ private:
     void forkControlSpeedCallback(const std_msgs::Float32::ConstPtr& msg);
     void wheelAccelerationRatioCallback(const std_msgs::Float32::ConstPtr& msg);
     void wheelDecelerationRatioCallback(const std_msgs::Float32::ConstPtr& msg);
-    void wheelAngleOffsetCallback(const std_msgs::Float32::ConstPtr& msg);
     void pubForkHight(float hight);
 
     void addMsgToQueueThread();
@@ -89,12 +89,22 @@ private:
     void handleMsg383(unsigned char length, unsigned char data[8]);
     void handleMsg778(unsigned char length, unsigned char data[8]);
 
+    // CAN Bus
     TPCANHandle pcan_handle_;
-
     uint16_t can_baud_rate_;
 
+    // Message data
     std::queue<CanBusCmd> msg_queue_;
+    uint8_t msg_data_203_[8];
+    uint8_t msg_data_303_[8];
 
+    // Thread
+    std::atomic<bool> stop_thread_;
+    std::thread addMsg_thread_;
+    std::thread transmit_thread_;
+    std::thread receive_thread_;
+
+    // Mutex
     std::mutex msg_queue_mutex_;
     std::mutex update_curtis_mutex_;
 
@@ -109,9 +119,6 @@ private:
     ros::Subscriber fork_control_speed_sub_;
     ros::Subscriber wheel_acceleration_sub_;
     ros::Subscriber wheel_deceleration_sub_;
-
-    uint8_t msg_data_203_[8];
-    uint8_t msg_data_303_[8];
 
     struct parameters{
 

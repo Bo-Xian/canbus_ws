@@ -4,11 +4,11 @@
 
 namespace wheel_controller {
 
-WheelController::WheelController(ros::NodeHandle *nh){
+WheelController::WheelController(ros::NodeHandle *nh):
+    yaml_path_(ros::package::getPath("wheel_controller") + "/cfg/wheel_controller.yaml"),
+    yaml_node_(YAML::LoadFile(yaml_path_))
+{
     // 初始化參數
-    params.yaml_path_           = ros::package::getPath("wheel_controller") + "/cfg/wheel_controller.yaml";
-    params.yaml_node_            = YAML::LoadFile(params.yaml_path_);
-
     params.wheel_angle_offset_  = 0;  // degree
 
     // 顯示版本
@@ -40,26 +40,47 @@ WheelController::~WheelController(){}
 
 
 bool WheelController::initPublisher(ros::NodeHandle *nh) {
-    wheel_cmd_pub_ = nh->advertise<geometry_msgs::Twist>  ("canbus/set_wheel_cmd_vel", 1000);
+    wheel_cmd_pub_      = nh->advertise<geometry_msgs::Twist>  ("canbus_driver/set_wheel_cmd_vel", 1000);
+    encoder_cmd_pub_    = nh->advertise<geometry_msgs::Twist>  ("wheel_controller/get_encoder_cmd_vel", 1000);
     return true;
 }
 
 void WheelController::pubWheelControlCmd(const geometry_msgs::Twist cmd){
-    ROS_INFO_STREAM("Cmd Val published");
     wheel_cmd_pub_.publish(cmd);
 }
 
+void WheelController::pubEncoderCmd(const geometry_msgs::Twist cmd){
+    encoder_cmd_pub_.publish(cmd);
+}
+
 bool WheelController::initSubscriber(ros::NodeHandle *nh){
-    cmd_vel_local_planner_sub_ = nh->subscribe("wheel_controller/set_cmd_vel_local_planner", 10, &WheelController::setCmdVelLocalPlannerCallback, this);
+    cmd_vel_local_planner_sub_  = nh->subscribe("wheel_controller/set_cmd_vel_local_planner",   10, &WheelController::setCmdVelLocalPlannerCallback, this);
+    encoder_angle_sub_          = nh->subscribe("canbus_driver/get_wheel_angle",                10, &WheelController::getEncoderAngleCallback, this);
+    encoder_velocity_sub_       = nh->subscribe("canbus_driver/get_wheel_velocity",             10, &WheelController::getEncoderVelocityCallback, this);
     return true;
 }
 
 void WheelController::setCmdVelLocalPlannerCallback(const geometry_msgs::Twist::ConstPtr& msg){
-    ROS_INFO_STREAM("Cmd Val Callback");
     geometry_msgs::Twist cmd;
     cmd.linear.x = msg->linear.x;
     cmd.angular.z = msg->angular.z + params.wheel_angle_offset_ / 180.0 * M_PI;
     pubWheelControlCmd(cmd);
+}
+
+void WheelController::getEncoderAngleCallback(const std_msgs::Float32::ConstPtr& msg){
+    params.encoder_angle_ = msg->data;
+    geometry_msgs::Twist cmd;
+    cmd.linear.x = params.encoder_velocity_;
+    cmd.angular.z = params.encoder_angle_ - params.wheel_angle_offset_ / 180.0 * M_PI;
+    pubEncoderCmd(cmd);
+}
+
+void WheelController::getEncoderVelocityCallback(const std_msgs::Float32::ConstPtr& msg){
+    params.encoder_velocity_ = msg->data;
+    geometry_msgs::Twist cmd;
+    cmd.linear.x = params.encoder_velocity_;
+    cmd.angular.z = params.encoder_angle_ - params.wheel_angle_offset_ / 180.0 * M_PI;
+    pubEncoderCmd(cmd);
 }
 
 bool WheelController::initDynamicReconfigure(){
@@ -68,14 +89,14 @@ bool WheelController::initDynamicReconfigure(){
     return true;
 }
 
-void WheelController::dynamicReconfigureCallback(wheel_controller::wheelControllerParamConfig &config, uint32_t level){
-    params.yaml_node_["wheel_angle_offset_"] = params.wheel_angle_offset_ = config.wheel_angle_offset_;
+void WheelController::dynamicReconfigureCallback(ParamConfig &config, uint32_t level){
+    yaml_node_["wheel_angle_offset_"] = params.wheel_angle_offset_ = config.wheel_angle_offset_;
     ROS_INFO_STREAM("wheel_angle_offset_ " << params.wheel_angle_offset_);
 
     // 將參數存回yaml檔
     ROS_INFO_STREAM("Save Params to YAML");
-    std::ofstream fout(params.yaml_path_);
-    fout << params.yaml_node_;
+    std::ofstream fout(yaml_path_);
+    fout << yaml_node_;
 }
 
 
